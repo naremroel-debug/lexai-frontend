@@ -1,52 +1,53 @@
-import { useState, useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { mockStats, mockTasks, mockEmails, mockSuggestions, mockTimeEntries, mockNews } from "@/lib/mockData";
+import { mockStats, mockTasks, mockEmails, mockSuggestions, mockNews } from "@/lib/mockData";
 import { StatCard, UrgencyChip, HeatBadge } from "@/components/shared/Chips";
-import { CheckSquare, Mail, Clock, Activity, ChevronDown, ChevronUp, Trash2, Loader2 } from "lucide-react";
+import { CheckSquare, Mail, Clock, Activity } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useApiData } from "@/hooks/use-api-data";
-import { apiPost, apiDelete } from "@/lib/api";
 import { LoadingCards, ErrorBanner } from "@/components/shared/DataStates";
-
-const projects = ["GR Cusco OxI", "Quellaveco EIA", "TSRA Apelación", "Graña Montero Arbitraje", "Miraflores APP", "Interno"];
 
 export default function Dashboard() {
   const { user, isDemo } = useAuth();
   const navigate = useNavigate();
-  const [timeOpen, setTimeOpen] = useState(false);
-  const [project, setProject] = useState(projects[0]);
-  const [hours, setHours] = useState("");
-  const [notes, setNotes] = useState("");
 
   // API connections — fallback to mock in demo mode
   const { data: dashData, loading, error, refetch } = useApiData<any>({
     path: "/api/dashboard", mockData: { stats: mockStats, tasks: mockTasks, recentEmails: mockEmails, suggestions: mockSuggestions }
   });
-  const { data: timeData } = useApiData<any[]>({ path: "/api/time-entries", params: { days: "30" }, mockData: mockTimeEntries });
+  const { data: suggestions, refetch: refetchSuggestions } = useApiData<any[]>({ path: "/api/suggestions", mockData: mockSuggestions });
+  const { data: newsData } = useApiData<any[]>({ path: "/api/news", mockData: mockNews });
+
+  // Try AI-generated suggestions via Tauri when Supabase suggestions are empty
+  const aiSuggestionsTriedRef = useRef(false);
+  useEffect(() => {
+    if (isDemo || aiSuggestionsTriedRef.current) return;
+    if (suggestions && suggestions.length === 0) {
+      aiSuggestionsTriedRef.current = true;
+      (async () => {
+        try {
+          if (typeof window !== "undefined" && "__TAURI__" in window) {
+            const { invoke } = await import("@tauri-apps/api/core");
+            await invoke("generate_suggestions");
+            // After Tauri generates and stores suggestions, refetch from Supabase
+            refetchSuggestions();
+          }
+        } catch (err) {
+          // Tauri not available or Gemini failed — existing Supabase suggestions still show
+          console.debug("[Index] generate_suggestions unavailable:", err);
+        }
+      })();
+    }
+  }, [isDemo, suggestions, refetchSuggestions]);
 
   const stats = dashData?.stats || mockStats;
   const tasks = dashData?.tasks || mockTasks;
   const emails = dashData?.recentEmails || mockEmails;
-  const suggestions = dashData?.suggestions || mockSuggestions;
-  const [entries, setEntries] = useState(mockTimeEntries);
-  useEffect(() => { if (timeData) setEntries(timeData); }, [timeData]);
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Buenos días" : hour < 18 ? "Buenas tardes" : "Buenas noches";
   const loadColor = stats.load_index < 3 ? "text-success" : stats.load_index <= 4 ? "text-gold" : "text-danger";
   const wellnessDot = stats.load_index < 3 ? "bg-success" : stats.load_index <= 4 ? "bg-gold" : "bg-danger";
-
-  const todayHours = entries.filter((e) => e.date === new Date().toISOString().split("T")[0]).reduce((s, e) => s + e.hours, 0);
-
-  const handleRegister = async () => {
-    if (!hours) return;
-    const entry = { project, hours: parseFloat(hours), date: new Date().toISOString().split("T")[0], notes };
-    if (!isDemo) {
-      try { await apiPost("/api/time-entries", entry); } catch {}
-    }
-    setEntries([{ id: `te_${Date.now()}`, ...entry }, ...entries]);
-    setHours(""); setNotes("");
-  };
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -65,46 +66,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard label="Tareas pendientes" value={stats.pending_tasks} icon={<CheckSquare className="h-5 w-5" />} />
         <StatCard label="Correos sin leer" value={stats.unread_emails} icon={<Mail className="h-5 w-5" />} />
-        {/* Expandable hours card */}
-        <div className="bg-card rounded-lg border hover:border-teal/30 transition-colors">
-          <button onClick={() => setTimeOpen(!timeOpen)} className="w-full p-4 text-left">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-muted-foreground text-sm">Horas esta semana</span>
-              <div className="flex items-center gap-1 text-muted-foreground">
-                <Clock className="h-5 w-5" />
-                {timeOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-              </div>
-            </div>
-            <p className="text-2xl font-bold font-serif">{stats.hours_this_week}h</p>
-          </button>
-          {timeOpen && (
-            <div className="px-4 pb-4 space-y-3 border-t pt-3 animate-fade-in">
-              <div className="text-center">
-                <span className="text-xs text-muted-foreground">Hoy: </span>
-                <span className="text-sm font-bold text-teal">{todayHours}h</span>
-              </div>
-              <div className="flex gap-2">
-                <select value={project} onChange={(e) => setProject(e.target.value)} className="flex-1 px-2 py-1.5 rounded border bg-background text-xs outline-none">
-                  {projects.map((p) => <option key={p}>{p}</option>)}
-                </select>
-                <input type="number" step="0.5" value={hours} onChange={(e) => setHours(e.target.value)} placeholder="Hrs" className="w-14 px-2 py-1.5 rounded border bg-background text-xs outline-none" />
-              </div>
-              <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notas..." className="w-full px-2 py-1.5 rounded border bg-background text-xs outline-none" />
-              <button onClick={handleRegister} className="w-full py-1.5 rounded bg-teal text-accent-foreground text-xs font-medium hover:bg-teal/90 transition-colors">
-                Registrar
-              </button>
-              {entries.slice(0, 3).map((e) => (
-                <div key={e.id} className="flex items-center justify-between text-xs">
-                  <span className="truncate flex-1 text-muted-foreground">{e.project}</span>
-                  <span className="font-mono text-teal ml-2">{e.hours}h</span>
-                  <button onClick={() => setEntries(entries.filter((x) => x.id !== e.id))} className="ml-1 text-danger/50 hover:text-danger">
-                    <Trash2 className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <StatCard label="Horas esta semana" value={`${stats.hours_this_week}h`} icon={<Clock className="h-5 w-5" />} />
         <StatCard label="Índice de carga" value={stats.load_index} icon={<Activity className="h-5 w-5" />} accent={loadColor} />
       </div>
 
@@ -168,7 +130,7 @@ export default function Dashboard() {
           <button onClick={() => navigate("/noticias")} className="text-xs text-teal hover:underline">Ver boletín completo →</button>
         </div>
         <div className="grid md:grid-cols-3 gap-3">
-          {mockNews.slice(0, 3).map((n) => (
+          {(newsData || mockNews).slice(0, 3).map((n) => (
             <div key={n.id} className="bg-card rounded-lg border p-3 hover:border-teal/30 transition-colors cursor-pointer" onClick={() => navigate("/noticias")}>
               <div className="flex items-start justify-between gap-2 mb-1">
                 <h3 className="text-sm font-medium line-clamp-2">{n.title}</h3>
