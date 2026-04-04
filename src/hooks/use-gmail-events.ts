@@ -194,8 +194,21 @@ export function useGmailEvents(): UseGmailEventsReturn {
   }, []);
 
   // --------------------------------------------------
-  // connect: start Gmail OAuth flow via Vercel popup
+  // connect: OAuth flow — go DIRECTLY to Google (bypass Vercel intermediary)
+  // Single OAuth for Gmail + Calendar + Drive + Tasks
   // --------------------------------------------------
+  const GOOGLE_CLIENT_ID = "450897227009-tfrve9upc8rs0oghuleen67tic2jg99f.apps.googleusercontent.com";
+  const GOOGLE_REDIRECT_URI = "https://lexai-omega.vercel.app/api/auth/callback";
+  const ALL_SCOPES = [
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/tasks",
+    "https://www.googleapis.com/auth/drive.file",
+    "https://www.googleapis.com/auth/drive.readonly",
+  ].join(" ");
+
   const connect = useCallback(async () => {
     if (isDemo || !isTauri) return;
     setState(prev => ({ ...prev, syncError: null }));
@@ -203,15 +216,28 @@ export function useGmailEvents(): UseGmailEventsReturn {
     try {
       const { supabase } = await import("@/lib/supabase");
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
+      if (!session?.user?.id) {
         setState(prev => ({ ...prev, syncError: "No hay sesión activa" }));
         return;
       }
 
-      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-      const oauthUrl = `https://lexai-omega.vercel.app/api/auth/gmail?token=${session.access_token}&next=calendar&desktop=1`;
+      // Build Google OAuth URL directly — no Vercel intermediary
+      const userId = session.user.id;
+      const state = `${userId}|desktop`;
+      const params = new URLSearchParams({
+        client_id: GOOGLE_CLIENT_ID,
+        redirect_uri: GOOGLE_REDIRECT_URI,
+        response_type: "code",
+        scope: ALL_SCOPES,
+        state,
+        access_type: "offline",
+        prompt: "consent",
+      });
+      const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 
-      // Create popup window for OAuth
+      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+
+      // Create popup window — goes DIRECTLY to Google consent
       const popup = new WebviewWindow("oauth-google", {
         url: oauthUrl,
         title: "Conectar Google — LexAI",
@@ -220,29 +246,26 @@ export function useGmailEvents(): UseGmailEventsReturn {
         center: true,
       });
 
-      // Wait for the popup to close (user completes or cancels OAuth)
+      // Wait for popup to close
       await new Promise<void>((resolve) => {
         popup.onCloseRequested(() => { resolve(); });
-        // Also poll — if window.close() from the success page works, onCloseRequested may not fire
         const interval = setInterval(async () => {
           try {
-            // Check if window is still open by trying to get its position
             await popup.innerPosition();
           } catch {
-            // Window is gone
             clearInterval(interval);
             resolve();
           }
         }, 1000);
-        // Timeout after 3 minutes
         setTimeout(() => { clearInterval(interval); resolve(); }, 180000);
       });
 
       // After popup closes, fetch tokens from Vercel and sync to keychain
       try {
         const { invoke } = await import("@tauri-apps/api/core");
+        const tokenSession = (await supabase.auth.getSession()).data.session;
         const res = await fetch(`https://lexai-omega.vercel.app/api/auth/tokens?type=gmail`, {
-          headers: { Authorization: `Bearer ${session.access_token}` },
+          headers: { Authorization: `Bearer ${tokenSession?.access_token || ""}` },
         });
         if (res.ok) {
           const json = await res.json();
@@ -261,16 +284,14 @@ export function useGmailEvents(): UseGmailEventsReturn {
         console.error("[use-gmail-events] token sync error:", e);
       }
 
-      // If we got here without tokens, check auth status as fallback
+      // Fallback: check if auth completed via keychain
       try {
         const { invoke } = await import("@tauri-apps/api/core");
         const status = await invoke("gmail_auth_status");
         if (status === true || status === "connected") {
           setState(prev => ({ ...prev, isConnected: true, syncError: null }));
         }
-      } catch {
-        // Auth didn't complete
-      }
+      } catch { /* not connected */ }
     } catch (err: any) {
       console.error("[use-gmail-events] connect error:", err);
       setState(prev => ({
