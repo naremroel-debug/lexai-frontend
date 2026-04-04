@@ -194,54 +194,86 @@ export function useGmailEvents(): UseGmailEventsReturn {
   }, []);
 
   // --------------------------------------------------
-  // connect: start Gmail OAuth flow via Tauri
+  // connect: start Gmail OAuth flow via Vercel popup
   // --------------------------------------------------
   const connect = useCallback(async () => {
     if (isDemo || !isTauri) return;
-
-    setState((prev) => ({ ...prev, syncError: null }));
-    connectCancelledRef.current = false;
+    setState(prev => ({ ...prev, syncError: null }));
 
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-
-      await invoke("gmail_auth_start");
-
-      // Poll for auth completion (timeout: 2 minutes, cancellable on unmount)
-      const maxAttempts = 60;
-      let attempt = 0;
-      let connected = false;
-
-      while (attempt < maxAttempts && !connectCancelledRef.current) {
-        await new Promise((r) => setTimeout(r, 2000));
-        attempt++;
-
-        try {
-          const status = await invoke("gmail_auth_status");
-          if (status === true || status === "connected") {
-            connected = true;
-            break;
-          }
-        } catch {
-          // Auth still in progress
-        }
+      const { supabase } = await import("@/lib/supabase");
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setState(prev => ({ ...prev, syncError: "No hay sesión activa" }));
+        return;
       }
 
-      if (connected) {
-        setState((prev) => ({
-          ...prev,
-          isConnected: true,
-          syncError: null,
-        }));
-      } else {
-        setState((prev) => ({
-          ...prev,
-          syncError: "Tiempo de espera agotado para autenticación de Gmail",
-        }));
+      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+      const oauthUrl = `https://lexai-omega.vercel.app/api/auth/gmail?token=${session.access_token}&next=calendar&desktop=1`;
+
+      // Create popup window for OAuth
+      const popup = new WebviewWindow("oauth-google", {
+        url: oauthUrl,
+        title: "Conectar Google — LexAI",
+        width: 600,
+        height: 700,
+        center: true,
+      });
+
+      // Wait for the popup to close (user completes or cancels OAuth)
+      await new Promise<void>((resolve) => {
+        popup.onCloseRequested(() => { resolve(); });
+        // Also poll — if window.close() from the success page works, onCloseRequested may not fire
+        const interval = setInterval(async () => {
+          try {
+            // Check if window is still open by trying to get its position
+            await popup.innerPosition();
+          } catch {
+            // Window is gone
+            clearInterval(interval);
+            resolve();
+          }
+        }, 1000);
+        // Timeout after 3 minutes
+        setTimeout(() => { clearInterval(interval); resolve(); }, 180000);
+      });
+
+      // After popup closes, fetch tokens from Vercel and sync to keychain
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const res = await fetch(`https://lexai-omega.vercel.app/api/auth/tokens?type=gmail`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (res.ok) {
+          const json = await res.json();
+          const tokens = json.data;
+          if (tokens?.access_token) {
+            await invoke("sync_google_tokens", {
+              accessToken: tokens.access_token,
+              refreshToken: tokens.refresh_token || "",
+              expiresAt: tokens.expires_at || 0,
+            });
+            setState(prev => ({ ...prev, isConnected: true, syncError: null }));
+            return;
+          }
+        }
+      } catch (e) {
+        console.error("[use-gmail-events] token sync error:", e);
+      }
+
+      // If we got here without tokens, check auth status as fallback
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const status = await invoke("gmail_auth_status");
+        if (status === true || status === "connected") {
+          setState(prev => ({ ...prev, isConnected: true, syncError: null }));
+        }
+      } catch {
+        // Auth didn't complete
       }
     } catch (err: any) {
       console.error("[use-gmail-events] connect error:", err);
-      setState((prev) => ({
+      setState(prev => ({
         ...prev,
         syncError: typeof err === "string" ? err : err?.message || "Error de conexión Gmail",
       }));
