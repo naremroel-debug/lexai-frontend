@@ -65,24 +65,25 @@
 ## IA Legal Page Simplification
 
 ### Current: 3 tabs + corpus search + quick actions
-### Proposed: Unified search with mode selector
+### Proposed: Unified search with 3 modes
 
 ```
 [ Input field                                          ]
-[ Mode: Consulta | Busqueda | Investigacion | Corpus  ]
+[ Mode: Consulta | Investigacion | Corpus             ]
 [ Results area with streaming markdown                 ]
 ```
 
-- **Consulta** → claude-orchestra-v2 (tool orchestration, citations, verification)
-- **Busqueda** → spij/chat (streaming legal norms with Google Search)
-- **Investigacion** → deep-research (Gemini + You.com cross-check)
+- **Consulta** → claude-orchestra-v2 (unified AI assistant: orchestrates Claude reasoning + Gemini search + SPIJ norms + corpus lookup — one mode that does it all)
+- **Investigacion** → deep-research (Gemini + You.com cross-check with confidence scores)
 - **Corpus** → corpus/search (598 PDFs, keyword/hybrid)
+
+Consulta absorbs the old "Busqueda" tab since Claude Orchestra v2 already has tools that can search SPIJ norms via Gemini. No need for a separate search mode.
 
 Quick actions become contextual buttons that pre-fill the input:
 - "Verificar vigencia de norma" → switches to Investigacion mode
 - "Analizar norma" → switches to Investigacion mode with analyze-deep prompt
 
-This reduces from 7 entry points to 4 clear modes.
+This reduces from 7 entry points to 3 clear modes.
 
 ## Google + Microsoft: Keep Both
 
