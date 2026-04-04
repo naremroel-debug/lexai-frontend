@@ -60,18 +60,10 @@ No build errors. Lint skipped (configured in next.config.js).
 **Why it's wrong:** Supabase client doesn't throw — it returns `{ data, error }`. The `.catch()` never fires, but creates confusing error types.
 **Fix:** Remove `.catch()`, handle via the `error` object in the response.
 
-### CORS: Zero Headers on All Routes
-**Every** backend route returns `NextResponse.json()` without CORS headers.
-Tauri app requests from `tauri://localhost` or `http://localhost:8080` will be blocked.
+### CORS: Middleware Exists But Missing Tauri Origin
+**UPDATE (P1 discovery):** CORS middleware DOES exist in `src/middleware.ts`. It handles preflight and response headers for `/api/*` routes. However, `tauri://localhost` is NOT in the ALLOWED origins list.
 
-**Fix needed:** Add CORS middleware or per-route headers:
-```typescript
-const headers = {
-  'Access-Control-Allow-Origin': 'tauri://localhost',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
-```
+**Fix:** Add `'tauri://localhost'` and `'https://tauri.localhost'` to the ALLOWED array in middleware.ts.
 
 ### Ollama Dependency
 `/api/corpus/search` in `hybrid` and `semantic` modes requires Ollama running on `localhost:11434` with `nomic-embed-text` model.
@@ -82,9 +74,9 @@ const headers = {
 ## Priority Classification
 
 ### P0 Blockers (Must fix before P1)
-1. CORS headers on all Vercel routes Tauri calls
-2. Frontend Supabase anon key placeholder
-3. Google OAuth credential placeholders in Rust
+1. CORS: Add Tauri origin to existing middleware (**middleware exists, just needs origin**)
+2. ~~Frontend Supabase anon key placeholder~~ **RESOLVED** — real JWT already in supabase.ts
+3. ~~Google OAuth credential placeholders in Rust~~ **RESOLVED** — real creds in auth.rs
 
 ### P1 Fixes (Fix during wiring phase)
 4. .catch() anti-pattern in 8 backend routes
