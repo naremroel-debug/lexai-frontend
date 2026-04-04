@@ -11,6 +11,12 @@ export default function Noticias() {
   const [analyzing, setAnalyzing] = useState<string | null>(null);
   const { data: news, loading } = useApiData<any[]>({ path: "/api/news", mockData: mockNews });
 
+  const [resumenLoading, setResumenLoading] = useState(false);
+  const [resumen, setResumen] = useState<string | null>(null);
+
+  const [analyzingId, setAnalyzingId] = useState<string | null>(null);
+  const [analyses, setAnalyses] = useState<Record<string, string>>({});
+
   const filtered = activeTab === "Todas"
     ? news
     : activeTab === "Relevantes para mis casos"
@@ -41,10 +47,31 @@ export default function Noticias() {
 
       {/* Action button */}
       <div className="flex justify-end">
-        <button className="px-4 py-2 rounded-lg bg-teal/10 text-teal text-sm font-medium hover:bg-teal/20 transition-colors">
-          🤖 Generar resumen semanal
+        <button
+          className="px-4 py-2 rounded-lg bg-teal/10 text-teal text-sm font-medium hover:bg-teal/20 transition-colors"
+          onClick={async () => {
+            setResumenLoading(true);
+            try {
+              const res = await apiPost("/api/news/analyze", {});
+              if (res?.data) {
+                setResumen(typeof res.data === "string" ? res.data : JSON.stringify(res.data, null, 2));
+              }
+            } catch (err) {
+              console.error("[Noticias] resumen error:", err);
+            } finally {
+              setResumenLoading(false);
+            }
+          }}
+        >
+          {resumenLoading ? "Generando..." : "🤖 Generar resumen semanal"}
         </button>
       </div>
+
+      {resumen && (
+        <div className="mt-3 p-4 rounded-lg bg-card border text-sm whitespace-pre-wrap">
+          {resumen}
+        </div>
+      )}
 
       {/* Articles */}
       <div className="space-y-3">
@@ -70,8 +97,29 @@ export default function Noticias() {
                 <span>·</span>
                 <span>{n.category}</span>
               </div>
-              <button className="text-xs font-medium text-teal hover:underline">Analizar impacto →</button>
+              <button
+                className="text-xs font-medium text-teal hover:underline"
+                onClick={async () => {
+                  setAnalyzingId(n.id);
+                  try {
+                    const res = await apiPost("/api/news/analyze", { newsId: n.id, title: n.title, summary: n.summary });
+                    if (res?.data) {
+                      setAnalyses(prev => ({ ...prev, [n.id]: typeof res.data === "string" ? res.data : JSON.stringify(res.data) }));
+                    }
+                  } catch (err) {
+                    console.error("[Noticias] analyze error:", err);
+                  } finally {
+                    setAnalyzingId(null);
+                  }
+                }}
+              >
+                {analyzingId === n.id ? "Analizando..." : "Analizar impacto →"}
+              </button>
             </div>
+
+            {analyses[n.id] && (
+              <p className="text-xs text-muted-foreground mt-2 whitespace-pre-wrap">{analyses[n.id]}</p>
+            )}
           </div>
         ))}
         {filtered.length === 0 && (
