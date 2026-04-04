@@ -48,21 +48,68 @@ export default function IALegal() {
         });
         setResults(data || []);
       } else {
-        // SPIJ search via Vercel
-        const data = await apiPost("/api/spij/chat", {
-          messages: [{ role: "user", content: query }],
-        });
-        const raw = data?.data ?? data;
-        const spijResults: CorpusResult[] = (raw?.sources || []).map((s: any, i: number) => ({
-          id: `spij_${i}`,
-          title: s.title || s.name || "Resultado SPIJ",
+        // SPIJ: stream Gemini response with Google Search grounding into center panel
+        const spijDoc: CorpusResult = {
+          id: "spij_live",
+          title: `SPIJ — ${query}`,
           doc_number: "",
-          date: "",
-          source: "SPIJ",
-          relevance: 90 - i * 5,
-          snippet: s.snippet || s.text || "",
-        }));
-        setResults(spijResults);
+          date: new Date().toISOString().slice(0, 10),
+          source: "SPIJ (Gemini + Google Search)",
+          relevance: 100,
+          snippet: "",
+          content: "Buscando en fuentes legales peruanas...",
+        };
+        setSelectedDoc(spijDoc);
+        setResults([]);
+
+        try {
+          const token = (await (await import("@/lib/supabase")).supabase.auth.getSession()).data.session?.access_token;
+          const res = await fetch("https://lexai-omega.vercel.app/api/spij/chat", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token || ""}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ messages: [{ role: "user", content: query }] }),
+          });
+
+          if (!res.ok) throw new Error(`SPIJ error ${res.status}`);
+          const reader = res.body!.getReader();
+          const dec = new TextDecoder();
+          let buf = "";
+          let fullText = "";
+          const sources: CorpusResult[] = [];
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += dec.decode(value, { stream: true });
+            const lines = buf.split("\n");
+            buf = lines.pop() || "";
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue;
+              try {
+                const ev = JSON.parse(line.slice(6).trim());
+                if (ev.type === "text") {
+                  fullText += ev.content;
+                  setSelectedDoc(prev => prev ? { ...prev, content: fullText } : prev);
+                } else if (ev.type === "sources") {
+                  const mapped = (ev.sources || []).map((s: any, i: number) => ({
+                    id: `spij_src_${i}`,
+                    title: s.title || "Fuente SPIJ",
+                    doc_number: "",
+                    date: "",
+                    source: "SPIJ",
+                    relevance: 95 - i * 3,
+                    snippet: "",
+                    content: "",
+                  }));
+                  sources.push(...mapped);
+                  setResults(sources);
+                }
+              } catch { /* partial JSON */ }
+            }
+          }
+        } catch (e: any) {
+          setSelectedDoc(prev => prev ? { ...prev, content: `⚠ Error: ${e.message}` } : prev);
+        }
       }
     } catch (e) {
       console.error("[IALegal] search error:", e);

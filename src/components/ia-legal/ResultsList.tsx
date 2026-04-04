@@ -1,4 +1,5 @@
-import { BookOpen, Globe } from "lucide-react";
+import { useState } from "react";
+import { BookOpen, Globe, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 
 export type SearchSource = "corpus" | "spij";
 export type CorpusMode = "keyword" | "hybrid" | "semantic";
@@ -30,9 +31,23 @@ export function ResultsList({
   source, onSourceChange, corpusMode, onCorpusModeChange,
   results, selectedId, onSelect, resultCount, searchTime,
 }: ResultsListProps) {
+  const [collapsed, setCollapsed] = useState(false);
+
+  if (collapsed) {
+    return (
+      <button
+        onClick={() => setCollapsed(false)}
+        className="w-10 shrink-0 flex flex-col items-center justify-center gap-2 bg-card border-r hover:bg-muted/50 transition-colors"
+        title="Mostrar resultados"
+      >
+        <PanelLeftOpen className="h-4 w-4 text-muted-foreground" />
+      </button>
+    );
+  }
+
   return (
     <div className="w-[220px] shrink-0 flex flex-col border-r bg-card">
-      {/* Tabs: Corpus / SPIJ */}
+      {/* Tabs: Corpus / SPIJ + collapse */}
       <div className="flex border-b">
         <button
           onClick={() => onSourceChange("corpus")}
@@ -55,6 +70,13 @@ export function ResultsList({
         >
           <Globe className="h-3 w-3 inline mr-1" />
           SPIJ
+        </button>
+        <button
+          onClick={() => setCollapsed(true)}
+          className="px-2 py-2 text-muted-foreground hover:text-foreground transition-colors"
+          title="Ocultar panel"
+        >
+          <PanelLeftClose className="h-3.5 w-3.5" />
         </button>
       </div>
 
