@@ -145,27 +145,31 @@ export function useMicrosoftEvents(): UseMicrosoftEventsReturn {
         // 1. Triage
         const triageResult = triageEmail(emailInput, triageCtxRef.current ?? undefined);
 
-        // 2. Upsert into emails table — use outlook_id column
-        const emailRow = {
-          outlook_id: emailInput.id,
-          from_address: emailInput.from,
-          to_addresses: emailInput.to,
-          cc_addresses: emailInput.cc || [],
-          subject: emailInput.subject,
-          body_text: emailInput.body,
-          body_html: emailInput.bodyHtml || null,
-          date: emailInput.date,
-          urgency: triageResult.urgency,
-          triage_score: urgencyToScore(triageResult.urgency),
-          triage_confidence: triageResult.confidence,
-          triage_stage: triageResult.stage,
-          triage_factors: triageResult.factors,
+        // 2. Upsert into emails table (matches backend schema)
+        const emailRow: Record<string, any> = {
+          id: emailInput.id,
           user_id: userId,
+          subject_enc: emailInput.subject,
+          from_enc: emailInput.from,
+          to_address: Array.isArray(emailInput.to) ? emailInput.to.join(", ") : emailInput.to,
+          body_enc: (emailInput.body || "").slice(0, 15000),
+          snippet: (emailInput.body || "").slice(0, 200),
+          gmail_date: emailInput.date,
+          internal_date: emailInput.date ? new Date(emailInput.date).toISOString() : new Date().toISOString(),
+          is_unread: true,
+          label_ids: [],
+          synced_at: new Date().toISOString(),
+          ai_urgency: triageResult.urgency,
+          ai_category: triageResult.factors?.join(", ") || null,
         };
+
+        if (emailInput.bodyHtml) {
+          emailRow.body_html_enc = emailInput.bodyHtml.slice(0, 50000);
+        }
 
         const { error: upsertError } = await supabase
           .from("emails")
-          .upsert(emailRow, { onConflict: "user_id,outlook_id" });
+          .upsert(emailRow, { onConflict: "id" });
 
         if (upsertError) {
           console.error("[use-microsoft-events] Email upsert error:", upsertError.message);
@@ -288,22 +292,30 @@ export function useMicrosoftEvents(): UseMicrosoftEventsReturn {
         center: true,
       });
 
-      // Wait for the popup to close (user completes or cancels OAuth)
+      // Wait for popup to close or detect success via title polling
       await new Promise<void>((resolve) => {
-        popup.onCloseRequested(() => { resolve(); });
-        // Also poll — if window.close() from the success page works, onCloseRequested may not fire
+        let resolved = false;
+        const done = () => { if (!resolved) { resolved = true; resolve(); } };
+
+        popup.onCloseRequested(() => { done(); });
+
         const interval = setInterval(async () => {
           try {
-            // Check if window is still open by trying to get its position
-            await popup.innerPosition();
+            const t = await popup.title();
+            if (t === "LEXAI_OAUTH_SUCCESS" || t === "LEXAI_OAUTH_ERROR") {
+              setTimeout(async () => {
+                try { await popup.close(); } catch { /* already gone */ }
+                clearInterval(interval);
+                done();
+              }, 1500);
+            }
           } catch {
-            // Window is gone
             clearInterval(interval);
-            resolve();
+            done();
           }
         }, 1000);
-        // Timeout after 3 minutes
-        setTimeout(() => { clearInterval(interval); resolve(); }, 180000);
+
+        setTimeout(() => { clearInterval(interval); done(); }, 180000);
       });
 
       // After popup closes, fetch tokens from Vercel and sync to keychain
