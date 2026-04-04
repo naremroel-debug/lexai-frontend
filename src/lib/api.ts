@@ -182,11 +182,10 @@ const supabaseRoutes: Record<string, RouteHandler> = {
 
 // Routes that need Tauri invoke (AI, Gmail API, Calendar API)
 const tauriRoutes: Record<string, (body?: any) => Promise<any>> = {
-  "/api/claude-orchestra": (body) => invoke?.("ai_chat", { message: body.message, mode: body.mode || "consulta" }) ?? legacyFetch("/api/claude-orchestra", "POST", body),
-  "/api/gemini-rag": (body) => invoke?.("gemini_search", { query: body.message }) ?? legacyFetch("/api/gemini-rag", "POST", body),
-  "/api/deep-research": (body) => invoke?.("deep_research", { query: body.message }) ?? legacyFetch("/api/deep-research", "POST", body),
-  "/api/news": () => invoke?.("fetch_news") ?? legacyFetch("/api/news", "GET"),
-  "/api/news/analyze": (body) => invoke?.("ai_chat", { message: body.text, mode: "analisis" }) ?? legacyFetch("/api/news/analyze", "POST", body),
+  "/api/claude-orchestra-v2": (body) => legacyFetchWithSupabaseAuth("/api/claude-orchestra-v2", "POST", { query: body.message, context: body.context }),
+  "/api/deep-research": (body) => legacyFetchWithSupabaseAuth("/api/deep-research", "POST", { query: body.message, mode: body.mode || "cross-check" }),
+  "/api/news": () => invoke?.("fetch_news") ?? legacyFetchWithSupabaseAuth("/api/news", "GET"),
+  "/api/news/analyze": (body) => legacyFetchWithSupabaseAuth("/api/news/analyze", "POST", body),
 };
 
 // POST routes that write to Supabase
@@ -268,6 +267,28 @@ const postRoutes: Record<string, (body: any) => Promise<any>> = {
     return data;
   },
 };
+
+// ── Legacy fetch with Supabase auth (for Tauri → Vercel API calls) ──────
+
+async function legacyFetchWithSupabaseAuth(path: string, method: string = "GET", body?: any): Promise<any> {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token || getToken();
+  const url = new URL(path, LEGACY_BASE_URL);
+  const res = await fetch(url.toString(), {
+    method,
+    headers: {
+      Authorization: token ? `Bearer ${token}` : "",
+      "Content-Type": "application/json",
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    throw new Error(e.error || e.message || `Error ${res.status}`);
+  }
+  const json = await res.json();
+  return json.data ?? json;
+}
 
 // ── Legacy fetch fallback (for when running in browser without Tauri) ──────
 
@@ -381,17 +402,18 @@ export async function* streamSSE(
   path: string,
   body: any
 ): AsyncGenerator<string> {
-  // In Tauri: use invoke for AI chat (returns complete response, not streamed)
-  // TODO: Implement true streaming via Tauri events when Rust commands support it
-  if (invoke && tauriRoutes[path]) {
+  // Route through tauriRoutes if available (these now use legacyFetchWithSupabaseAuth)
+  if (tauriRoutes[path]) {
     try {
       const result = await tauriRoutes[path](body);
       // Emit as a single chunk matching the SSE format the pages expect
       yield JSON.stringify({
         type: "content",
-        text: result.content || result.text || (typeof result === "string" ? result : JSON.stringify(result)),
+        text: result.content || result.text || result.answer || (typeof result === "string" ? result : JSON.stringify(result)),
         sources: result.sources || [],
         confidence: result.confidence || 0.8,
+        tools: result._meta?.tools_used || [],
+        verification: result._verification || null,
       });
       yield JSON.stringify({ type: "done" });
       return;
@@ -402,7 +424,8 @@ export async function* streamSSE(
   }
 
   // Legacy SSE streaming (browser-only fallback)
-  const token = getToken();
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token || getToken();
   const res = await fetch(LEGACY_BASE_URL + path, {
     method: "POST",
     headers: {
