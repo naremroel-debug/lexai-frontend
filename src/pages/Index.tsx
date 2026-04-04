@@ -26,7 +26,7 @@ export default function Dashboard() {
       aiSuggestionsTriedRef.current = true;
       (async () => {
         try {
-          if (typeof window !== "undefined" && "__TAURI__" in window) {
+          if (typeof window !== "undefined" && ("__TAURI__" in window || "__TAURI_INTERNALS__" in window)) {
             const { invoke } = await import("@tauri-apps/api/core");
             await invoke("generate_suggestions");
             // After Tauri generates and stores suggestions, refetch from Supabase

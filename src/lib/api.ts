@@ -13,7 +13,7 @@
 import { supabase } from "./supabase";
 
 // Detect if we're inside Tauri or a regular browser
-const isTauri = typeof window !== "undefined" && "__TAURI__" in window;
+const isTauri = typeof window !== "undefined" && ("__TAURI__" in window || "__TAURI_INTERNALS__" in window);
 
 // Dynamic import of Tauri invoke (only available inside Tauri runtime)
 let invoke: ((cmd: string, args?: any) => Promise<any>) | null = null;
