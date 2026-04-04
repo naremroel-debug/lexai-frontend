@@ -3,7 +3,9 @@
   "identifier": "default",
   "description": "Default capability for the main LexAI window. Grants minimal permissions: window management, path resolution, event system, and scoped HTTP. No filesystem, no shell, no process access from the frontend.",
   "windows": [
-    "main"
+    "main",
+    "oauth-google",
+    "oauth-microsoft"
   ],
   "permissions": [
     "core:default",
@@ -21,6 +23,8 @@
     "core:window:allow-is-visible",
     "core:window:allow-theme",
     "core:window:allow-create",
+    "core:window:allow-title",
+    "core:window:allow-destroy",
     "core:webview:default",
     "core:webview:allow-create-webview-window",
     "core:path:default",
