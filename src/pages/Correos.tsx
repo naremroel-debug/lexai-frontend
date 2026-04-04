@@ -1,22 +1,110 @@
 import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { mockEmails } from "@/lib/mockData";
 import { UrgencyChip } from "@/components/shared/Chips";
 import { Mail, RefreshCw, Pen, ArrowLeft, X, Loader2 } from "lucide-react";
 import { useApiData } from "@/hooks/use-api-data";
 import { apiPost } from "@/lib/api";
 import { LoadingSpinner, ErrorBanner } from "@/components/shared/DataStates";
+import { UrgencyOverride } from "@/components/email/UrgencyOverride";
+import { useTriageContext } from "@/hooks/use-triage-context";
+import { extractEmailAddress } from "@/lib/email-triage";
+import { useGmailEvents } from "@/hooks/use-gmail-events";
 
 export default function Correos() {
   const [selected, setSelected] = useState<string | null>(null);
   const [composing, setComposing] = useState(false);
-  const [syncing, setSyncing] = useState(false);
+  const [composeTo, setComposeTo] = useState("");
+  const [composeSubject, setComposeSubject] = useState("");
+  const [composeBody, setComposeBody] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const { isSyncing, manualSync } = useGmailEvents();
+  const { context: triageCtx } = useTriageContext();
 
   const { data: emails, loading, error, refetch } = useApiData<any[]>({ path: "/api/emails", mockData: mockEmails });
+
+  const handleUrgencyOverride = async (emailId: string, currentEmail: any, newUrgency: string, reason?: string) => {
+    try {
+      await apiPost("/api/triage-override", {
+        email_id: emailId,
+        original_urgency: currentEmail.urgency,
+        new_urgency: newUrgency,
+        email_text: currentEmail.body?.slice(0, 500) || "",
+        email_subject: currentEmail.subject || "",
+        email_from: currentEmail.from || "",
+        sender_email: extractEmailAddress(currentEmail.from || ""),
+        confidence: currentEmail.triage_confidence,
+        triage_stage: currentEmail.triage_stage,
+        triage_factors: currentEmail.triage_factors || [],
+        reason,
+      });
+      refetch();
+    } catch (err) {
+      console.error("Override failed:", err);
+    }
+  };
   const email = emails.find((e: any) => e.id === selected);
 
   const handleSync = async () => {
-    setSyncing(true);
-    try { await apiPost("/api/emails", {}); refetch(); } catch {} finally { setSyncing(false); }
+    await manualSync();
+    refetch();
+  };
+
+  const handleSend = async () => {
+    if (!composeBody.trim()) {
+      console.warn("El cuerpo del correo no puede estar vacío.");
+      return;
+    }
+    try {
+      await invoke("gmail_send", {
+        request: {
+          to: composeTo,
+          subject: composeSubject,
+          body: composeBody,
+        },
+      });
+      setComposeTo("");
+      setComposeSubject("");
+      setComposeBody("");
+      setComposing(false);
+    } catch (err) {
+      console.error("Error al enviar correo:", err);
+    }
+  };
+
+  const handleAiCompose = async () => {
+    setAiLoading(true);
+    try {
+      const res = await apiPost("/api/claude-orchestra-v2", {
+        query: "Redacta un correo profesional para un abogado peruano. Incluye un saludo formal, cuerpo claro y cierre cordial.",
+        context: { mode: "email-compose" },
+      });
+      const aiText = (res as any)?.result || (res as any)?.content || "";
+      setComposeBody(aiText);
+    } catch (err) {
+      console.error("Error al redactar con IA:", err);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleAiReply = async (replyTo: any) => {
+    setAiLoading(true);
+    try {
+      const res = await apiPost("/api/claude-orchestra-v2", {
+        query: `Genera una respuesta profesional al siguiente correo. De: ${replyTo.from}. Asunto: ${replyTo.subject}. Mensaje: ${replyTo.body?.slice(0, 1000) || ""}`,
+        context: { mode: "email-reply" },
+      });
+      const aiText = (res as any)?.result || (res as any)?.content || "";
+      setComposeTo(extractEmailAddress(replyTo.from || ""));
+      setComposeSubject(`Re: ${replyTo.subject || ""}`);
+      setComposeBody(aiText);
+      setComposing(true);
+    } catch (err) {
+      console.error("Error al generar respuesta IA:", err);
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   if (composing) {
@@ -27,13 +115,45 @@ export default function Correos() {
         </button>
         <div className="bg-card rounded-xl border p-6 space-y-4 animate-scale-in">
           <h2 className="font-serif text-xl font-bold">Nuevo correo</h2>
-          <input placeholder="Para:" className="w-full px-3 py-2 rounded-lg border bg-background text-sm outline-none focus:ring-2 focus:ring-teal/50 transition-shadow duration-200" />
-          <input placeholder="CC:" className="w-full px-3 py-2 rounded-lg border bg-background text-sm outline-none focus:ring-2 focus:ring-teal/50 transition-shadow duration-200" />
-          <input placeholder="Asunto:" className="w-full px-3 py-2 rounded-lg border bg-background text-sm outline-none focus:ring-2 focus:ring-teal/50 transition-shadow duration-200" />
-          <textarea rows={8} placeholder="Escribe tu mensaje..." className="w-full px-3 py-2 rounded-lg border bg-background text-sm outline-none resize-y focus:ring-2 focus:ring-teal/50 transition-shadow duration-200" />
+          <input
+            placeholder="Para:"
+            value={composeTo}
+            onChange={(e) => setComposeTo(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border bg-background text-sm outline-none focus:ring-2 focus:ring-teal/50 transition-shadow duration-200"
+          />
+          <input
+            placeholder="CC:"
+            className="w-full px-3 py-2 rounded-lg border bg-background text-sm outline-none focus:ring-2 focus:ring-teal/50 transition-shadow duration-200"
+          />
+          <input
+            placeholder="Asunto:"
+            value={composeSubject}
+            onChange={(e) => setComposeSubject(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border bg-background text-sm outline-none focus:ring-2 focus:ring-teal/50 transition-shadow duration-200"
+          />
+          <textarea
+            rows={8}
+            placeholder="Escribe tu mensaje..."
+            value={composeBody}
+            onChange={(e) => setComposeBody(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border bg-background text-sm outline-none resize-y focus:ring-2 focus:ring-teal/50 transition-shadow duration-200"
+          />
           <div className="flex gap-2">
-            <button className="px-6 py-2 rounded-lg bg-teal text-accent-foreground font-medium text-sm hover:bg-teal/90 transition-all duration-200 active:scale-[0.98]">Enviar</button>
-            <button className="px-4 py-2 rounded-lg border text-sm hover:bg-muted transition-colors">🤖 Redactar con IA</button>
+            <button
+              onClick={handleSend}
+              disabled={aiLoading}
+              className="px-6 py-2 rounded-lg bg-teal text-accent-foreground font-medium text-sm hover:bg-teal/90 transition-all duration-200 active:scale-[0.98] disabled:opacity-50"
+            >
+              Enviar
+            </button>
+            <button
+              onClick={handleAiCompose}
+              disabled={aiLoading}
+              className="px-4 py-2 rounded-lg border text-sm hover:bg-muted transition-colors disabled:opacity-50 flex items-center gap-2"
+            >
+              {aiLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              🤖 Redactar con IA
+            </button>
           </div>
         </div>
       </div>
@@ -50,12 +170,22 @@ export default function Correos() {
           <div className="lg:col-span-2 bg-card rounded-xl border p-6">
             <div className="flex items-center justify-between mb-2">
               <h2 className="font-serif text-xl font-bold">{email.subject}</h2>
-              <UrgencyChip level={email.urgency} />
+              <UrgencyOverride
+                emailId={email.id}
+                currentUrgency={email.urgency}
+                wasOverridden={email.triage_overridden}
+                onOverride={(newUrgency, reason) => handleUrgencyOverride(email.id, email, newUrgency, reason)}
+              />
             </div>
             <p className="text-sm text-muted-foreground mb-1">{email.from}</p>
             <p className="text-xs text-muted-foreground mb-4">{new Date(email.date).toLocaleString("es-PE")}</p>
             <div className="whitespace-pre-wrap text-sm leading-relaxed">{email.body}</div>
-            <button className="mt-4 px-4 py-2 rounded-lg bg-teal/10 text-teal text-sm font-medium hover:bg-teal/20 transition-colors">
+            <button
+              onClick={() => handleAiReply(email)}
+              disabled={aiLoading}
+              className="mt-4 px-4 py-2 rounded-lg bg-teal/10 text-teal text-sm font-medium hover:bg-teal/20 transition-colors disabled:opacity-50 flex items-center gap-2"
+            >
+              {aiLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               🤖 Generar respuesta IA
             </button>
           </div>
@@ -79,8 +209,8 @@ export default function Correos() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-serif font-bold">Correos</h1>
         <div className="flex gap-2">
-          <button className="flex items-center gap-2 px-3 py-2 rounded-lg border text-sm hover:bg-muted transition-colors">
-            <RefreshCw className="h-4 w-4" /> Sincronizar Gmail
+          <button onClick={handleSync} disabled={isSyncing} className="flex items-center gap-2 px-3 py-2 rounded-lg border text-sm hover:bg-muted transition-colors disabled:opacity-50">
+            <RefreshCw className={`h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} /> {isSyncing ? "Sincronizando..." : "Sincronizar Gmail"}
           </button>
         </div>
       </div>
