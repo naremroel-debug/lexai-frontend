@@ -1,17 +1,38 @@
 # Bug Audit — LexAI
 **Date:** 2026-04-04
 
-## Frontend Build Results
+## Frontend Build Results (Vite)
 
-> To be filled after running `npm run build` (Task 5)
+**Status: PASS** — Built in 6.23s, 1799 modules transformed.
 
-## Rust Build Results
+**Warning:** Main JS chunk is 735KB (gzip: 214KB). Needs code splitting via dynamic imports.
+**Warning:** `triage-config.ts` is both dynamically and statically imported (won't affect runtime).
 
-> To be filled after running `cargo check` (Task 5)
+No TypeScript errors. No build failures.
 
-## Backend Build Results
+## Rust Build Results (cargo check)
 
-> To be filled after running `npm run build` in backend (Task 5)
+**Status: PASS** — Compiled successfully with 14 warnings, zero errors.
+
+**Warnings (all minor — unused fields/functions):**
+| Warning | File | Impact |
+|---------|------|--------|
+| Field `status` never read | `calendar/types.rs:65` | Harmless — deserialized from API |
+| Field `token_type` never read | `microsoft/types.rs:26` | Harmless |
+| Fields `bcc_recipients`, `has_attachments`, `importance` never read | `microsoft/types.rs:55-63` | Harmless |
+| Field `importance` never read | `microsoft/types.rs:119` | Harmless |
+| Field `time_zone` never read | `microsoft/types.rs:128` | Harmless |
+| Field `last_modified_date_time` never read | `microsoft/types.rs:170` | Harmless |
+| Function `compute_context_hash` never used | `suggestions/engine.rs:87` | Dead code — clean up |
+
+All 28 Tauri commands compile. No blocking issues.
+
+## Backend Build Results (Next.js)
+
+**Status: PASS** — Compiled successfully, 12 static pages + 55 dynamic API routes generated.
+
+No build errors. Lint skipped (configured in next.config.js).
+55 API routes confirmed functional at build time.
 
 ## Known Backend Issues (from DX-DEEP.txt)
 
