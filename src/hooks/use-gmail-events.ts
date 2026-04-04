@@ -143,27 +143,33 @@ export function useGmailEvents(): UseGmailEventsReturn {
         // 1. Triage
         const triageResult = triageEmail(emailInput, triageCtxRef.current ?? undefined);
 
-        // 2. Upsert into emails table
-        const emailRow = {
-          gmail_id: emailInput.id,
-          from_address: emailInput.from,
-          to_addresses: emailInput.to,
-          cc_addresses: emailInput.cc || [],
-          subject: emailInput.subject,
-          body_text: emailInput.body,
-          body_html: emailInput.bodyHtml || null,
-          date: emailInput.date,
-          urgency: triageResult.urgency,
-          triage_score: urgencyToScore(triageResult.urgency),
-          triage_confidence: triageResult.confidence,
-          triage_stage: triageResult.stage,
-          triage_factors: triageResult.factors,
+        // 2. Upsert into emails table (matches backend schema: id, subject_enc, from_enc, etc.)
+        // Note: Tauri stores plaintext — encryption is only on the Vercel backend.
+        // We use the unencrypted-friendly columns and snippet for body preview.
+        const emailRow: Record<string, any> = {
+          id: emailInput.id,
           user_id: userId,
+          subject_enc: emailInput.subject,  // stored as plaintext from Tauri (backend encrypts)
+          from_enc: emailInput.from,
+          to_address: Array.isArray(emailInput.to) ? emailInput.to.join(", ") : emailInput.to,
+          body_enc: (emailInput.body || "").slice(0, 15000),
+          snippet: (emailInput.body || "").slice(0, 200),
+          gmail_date: emailInput.date,
+          internal_date: emailInput.date ? new Date(emailInput.date).toISOString() : new Date().toISOString(),
+          is_unread: true,
+          label_ids: [],
+          synced_at: new Date().toISOString(),
+          ai_urgency: triageResult.urgency,
+          ai_category: triageResult.factors?.join(", ") || null,
         };
+
+        if (emailInput.bodyHtml) {
+          emailRow.body_html_enc = emailInput.bodyHtml.slice(0, 50000);
+        }
 
         const { error: upsertError } = await supabase
           .from("emails")
-          .upsert(emailRow, { onConflict: "gmail_id" });
+          .upsert(emailRow, { onConflict: "id" });
 
         if (upsertError) {
           console.error("[use-gmail-events] Email upsert error:", upsertError.message);
@@ -246,18 +252,45 @@ export function useGmailEvents(): UseGmailEventsReturn {
         center: true,
       });
 
-      // Wait for popup to close
+      // Wait for popup to close or detect success via URL polling
       await new Promise<void>((resolve) => {
-        popup.onCloseRequested(() => { resolve(); });
+        let resolved = false;
+        const done = () => { if (!resolved) { resolved = true; resolve(); } };
+
+        popup.onCloseRequested(() => { done(); });
+
+        // Poll: check if popup navigated to the callback success page
         const interval = setInterval(async () => {
           try {
-            await popup.innerPosition();
+            // Try to get the popup's current URL via eval
+            const { WebviewWindow: WW } = await import("@tauri-apps/api/webviewWindow");
+            const win = WW.getByLabel("oauth-google");
+            if (!win) { clearInterval(interval); done(); return; }
+
+            // Check if window still exists
+            await win.innerPosition();
+
+            // Try to read the URL from the webview
+            try {
+              const currentUrl = await win.url();
+              if (currentUrl.includes("/api/auth/callback") || currentUrl.includes("Conectado")) {
+                // Success! Close the popup after a brief delay
+                setTimeout(async () => {
+                  try { await win.close(); } catch { /* already closed */ }
+                  clearInterval(interval);
+                  done();
+                }, 1500);
+              }
+            } catch { /* can't read URL yet, keep polling */ }
           } catch {
+            // Window is gone
             clearInterval(interval);
-            resolve();
+            done();
           }
         }, 1000);
-        setTimeout(() => { clearInterval(interval); resolve(); }, 180000);
+
+        // Timeout after 3 minutes
+        setTimeout(() => { clearInterval(interval); done(); }, 180000);
       });
 
       // After popup closes, fetch tokens from Vercel and sync to keychain
