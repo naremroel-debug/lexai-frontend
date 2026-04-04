@@ -6,18 +6,18 @@ import { Search, BookOpen, Send, Loader2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { streamSSE, api, apiPost } from "@/lib/api";
 
-type Mode = "consulta" | "busqueda" | "investigacion";
+type Mode = "consulta" | "investigacion" | "corpus";
 
 const modes = [
-  { key: "consulta" as Mode, icon: "🧠", label: "Consulta", sub: "Claude Orchestra" },
-  { key: "busqueda" as Mode, icon: "🔍", label: "Búsqueda Rápida", sub: "Gemini · 3s" },
-  { key: "investigacion" as Mode, icon: "📚", label: "Investigación Profunda", sub: "Deep Research · Validador de fuentes" },
+  { key: "consulta" as Mode, icon: "⚖️", label: "Consulta", sub: "Claude Orchestra — asistente legal integral" },
+  { key: "investigacion" as Mode, icon: "🔬", label: "Investigación", sub: "Gemini + You.com — verificación cruzada" },
+  { key: "corpus" as Mode, icon: "📚", label: "Corpus", sub: "598 PDFs — búsqueda legal" },
 ];
 
 const quickActions = [
-  { icon: "📝", label: "Generar Draft", sub: "Documento con marcadores [RIESGO]", accent: false },
-  { icon: "⬆️", label: "Upload & Research", sub: "Sube brief → encuentra jurisprudencia", accent: true },
-  { icon: "✅", label: "Verificar Vigencia", sub: "¿Está vigente esta norma?", accent: false },
+  { label: "Verificar vigencia", mode: "investigacion", prompt: "Verificar vigencia de: " },
+  { label: "Analizar norma", mode: "investigacion", prompt: "Analizar en profundidad: " },
+  { label: "Buscar en corpus", mode: "corpus", prompt: "" },
 ];
 
 const suggestedPrompts = [
@@ -39,7 +39,10 @@ export default function IALegal() {
   const [corpusResults, setCorpusResults] = useState(mockCorpusResults);
   const [searchingCorpus, setSearchingCorpus] = useState(false);
 
-  const apiPath = mode === "busqueda" ? "/api/gemini-rag" : mode === "investigacion" ? "/api/deep-research" : "/api/claude-orchestra";
+  const apiPath =
+    mode === "consulta" ? "/api/claude-orchestra-v2" :
+    mode === "investigacion" ? "/api/deep-research" :
+    "/api/corpus/search";
 
   const handleSend = useCallback(async () => {
     if (!input.trim() || streaming) return;
@@ -84,10 +87,9 @@ export default function IALegal() {
     finally { setSearchingCorpus(false); }
   }, [corpusQuery, corpusMode, isDemo]);
 
-  const handleQuickAction = (label: string) => {
-    if (label === "Verificar Vigencia") {
-      setInput("Verifica si el Decreto Legislativo 1252 está vigente");
-    }
+  const handleQuickAction = (action: { label: string; mode: string; prompt: string }) => {
+    setMode(action.mode as Mode);
+    if (action.prompt) setInput(action.prompt);
   };
 
   return (
@@ -113,16 +115,13 @@ export default function IALegal() {
         {quickActions.map((a, idx) => (
           <button
             key={a.label}
-            onClick={() => handleQuickAction(a.label)}
+            onClick={() => handleQuickAction(a)}
             style={{ animationDelay: `${idx * 60}ms` }}
-            className={`flex items-center gap-2 p-3 rounded-lg border text-left text-sm transition-all duration-200 hover:border-teal/30 hover:scale-[1.02] hover:shadow-sm animate-slide-up ${
-              a.accent ? "border-teal/40 bg-teal/5" : "bg-card"
-            }`}
+            className="flex items-center gap-2 p-3 rounded-lg border text-left text-sm transition-all duration-200 hover:border-teal/30 hover:scale-[1.02] hover:shadow-sm animate-slide-up bg-card"
           >
-            <span className="text-xl shrink-0">{a.icon}</span>
             <div className="min-w-0">
               <div className="font-medium text-sm">{a.label}</div>
-              <div className="text-xs text-muted-foreground truncate">{a.sub}</div>
+              <div className="text-xs text-muted-foreground truncate">{a.mode}</div>
             </div>
           </button>
         ))}
@@ -161,7 +160,7 @@ function ChatPanel({ messages, input, setInput, onSend, mode, streaming }: {
   messages: typeof mockChatMessages; input: string; setInput: (s: string) => void; onSend: () => void; mode: Mode; streaming?: boolean;
 }) {
   const isEmpty = messages.length === 0;
-  const modeLabels: Record<Mode, string> = { consulta: "Claude Orchestra", busqueda: "Gemini", investigacion: "Deep Research + Validador de bibliografía" };
+  const modeLabels: Record<Mode, string> = { consulta: "Claude Orchestra v2", investigacion: "Deep Research + Validador de bibliografía", corpus: "Corpus Legal — 598 PDFs" };
 
   return (
     <div className="flex flex-col bg-card rounded-xl border overflow-hidden flex-1">
@@ -177,13 +176,13 @@ function ChatPanel({ messages, input, setInput, onSend, mode, streaming }: {
           <div className="flex flex-col items-center justify-center h-full text-center py-12 animate-enter">
             <BrainIllustration className="w-24 h-24 mb-4 animate-float" />
             <h2 className="font-serif text-xl font-bold mb-2">
-              {mode === "investigacion" ? "Investigación Profunda" : mode === "busqueda" ? "Búsqueda Rápida" : "Consulta IA Legal"}
+              {mode === "investigacion" ? "Investigación Profunda" : mode === "corpus" ? "Corpus Legal" : "Consulta IA Legal"}
             </h2>
             <p className="text-sm text-muted-foreground mb-2">
-              {mode === "investigacion" 
+              {mode === "investigacion"
                 ? "Investigación exhaustiva con validación automática de bibliografía y enlaces citados"
-                : mode === "busqueda"
-                ? "Búsqueda rápida con Gemini — resultados en ~3 segundos"
+                : mode === "corpus"
+                ? "Busca en 598 PDFs legales — keyword, hybrid o semántico"
                 : "Pregunta sobre normas, jurisprudencia, o genera documentos"}
             </p>
             {mode === "investigacion" && (
