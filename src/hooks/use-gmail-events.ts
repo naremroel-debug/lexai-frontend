@@ -252,38 +252,27 @@ export function useGmailEvents(): UseGmailEventsReturn {
         center: true,
       });
 
-      // Wait for popup to close or detect success via URL polling
+      // Wait for popup to close or detect success via title polling
       await new Promise<void>((resolve) => {
         let resolved = false;
         const done = () => { if (!resolved) { resolved = true; resolve(); } };
 
         popup.onCloseRequested(() => { done(); });
 
-        // Poll: check if popup navigated to the callback success page
+        // Poll the popup's window title — callback sets it to "LEXAI_OAUTH_SUCCESS"
         const interval = setInterval(async () => {
           try {
-            // Try to get the popup's current URL via eval
-            const { WebviewWindow: WW } = await import("@tauri-apps/api/webviewWindow");
-            const win = WW.getByLabel("oauth-google");
-            if (!win) { clearInterval(interval); done(); return; }
-
-            // Check if window still exists
-            await win.innerPosition();
-
-            // Try to read the URL from the webview
-            try {
-              const currentUrl = await win.url();
-              if (currentUrl.includes("/api/auth/callback") || currentUrl.includes("Conectado")) {
-                // Success! Close the popup after a brief delay
-                setTimeout(async () => {
-                  try { await win.close(); } catch { /* already closed */ }
-                  clearInterval(interval);
-                  done();
-                }, 1500);
-              }
-            } catch { /* can't read URL yet, keep polling */ }
+            const t = await popup.title();
+            if (t === "LEXAI_OAUTH_SUCCESS" || t === "LEXAI_OAUTH_ERROR") {
+              // Auth flow finished — close popup after brief delay
+              setTimeout(async () => {
+                try { await popup.close(); } catch { /* already gone */ }
+                clearInterval(interval);
+                done();
+              }, 1500);
+            }
           } catch {
-            // Window is gone
+            // popup.title() threw — window is destroyed
             clearInterval(interval);
             done();
           }
