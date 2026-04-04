@@ -1,0 +1,54 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capability for the main LexAI window. Grants minimal permissions: window management, path resolution, event system, and scoped HTTP. No filesystem, no shell, no process access from the frontend.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-center",
+    "core:window:allow-close",
+    "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-set-title",
+    "core:window:allow-set-size",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-is-fullscreen",
+    "core:window:allow-is-maximized",
+    "core:window:allow-is-minimized",
+    "core:window:allow-is-visible",
+    "core:window:allow-theme",
+    "core:window:allow-create",
+    "core:webview:default",
+    "core:webview:allow-create-webview-window",
+    "core:path:default",
+    "core:event:default",
+    "core:event:allow-listen",
+    "core:event:allow-emit",
+    "core:app:default",
+    "core:app:allow-version",
+    "core:resources:default",
+    "core:image:default",
+    "log:default",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://*.supabase.co/**" },
+        { "url": "https://www.googleapis.com/**" },
+        { "url": "https://oauth2.googleapis.com/**" },
+        { "url": "https://gmail.googleapis.com/**" },
+        { "url": "https://accounts.google.com/**" },
+        { "url": "https://generativelanguage.googleapis.com/**" },
+        { "url": "https://api.anthropic.com/**" },
+        { "url": "https://lexai-omega.vercel.app/**" },
+        { "url": "https://graph.microsoft.com/**" },
+        { "url": "https://login.microsoftonline.com/**" }
+      ],
+      "deny": [
+        { "url": "http://**" }
+      ]
+    }
+  ]
+}
