@@ -218,14 +218,6 @@ export const mockCalendarEvents = [
   { id: "ev5", title: "Revisión expediente Quellaveco con equipo", date: "2026-03-31", start: "09:00", end: "11:00", type: "reunion" as const, color: "teal" },
 ];
 
-export const mockTimeEntries = [
-  { id: "te1", project: "GR Cusco OxI", hours: 4.5, date: "2026-03-31", notes: "Revisión de observaciones DGPPIP" },
-  { id: "te2", project: "Quellaveco EIA", hours: 3.0, date: "2026-03-31", notes: "Análisis de requerimiento SUNAT" },
-  { id: "te3", project: "TSRA Apelación", hours: 2.5, date: "2026-03-30", notes: "Preparación de alegatos" },
-  { id: "te4", project: "Graña Montero Arbitraje", hours: 5.0, date: "2026-03-29", notes: "Jurisprudencia CIADI" },
-  { id: "te5", project: "Miraflores APP", hours: 1.5, date: "2026-03-29", notes: "Revisión contrato de concesión" },
-];
-
 export const mockNews = [
   {
     id: "n1",
