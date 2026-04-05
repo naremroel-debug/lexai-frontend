@@ -200,6 +200,25 @@ const supabaseRoutes: Record<string, RouteHandler> = {
   },
 };
 
+// Graph API routes (always go through Vercel backend)
+const graphGetRoutes: Record<string, RouteHandler> = {
+  "/api/graph/stats": async () => {
+    return legacyFetchWithSupabaseAuth("/api/graph/stats", "GET");
+  },
+  "/api/graph/subgraph": async (params) => {
+    const qs = new URLSearchParams(params || {}).toString();
+    return legacyFetchWithSupabaseAuth(`/api/graph/subgraph?${qs}`, "GET");
+  },
+  "/api/graph/neighbors": async (params) => {
+    const qs = new URLSearchParams(params || {}).toString();
+    return legacyFetchWithSupabaseAuth(`/api/graph/neighbors?${qs}`, "GET");
+  },
+};
+
+const graphPostRoutes: Record<string, (body: any) => Promise<any>> = {
+  "/api/graph/rag": (body) => legacyFetchWithSupabaseAuth("/api/graph/rag", "POST", body),
+};
+
 // Routes that need Tauri invoke (AI, Gmail API, Calendar API)
 const tauriRoutes: Record<string, (body?: any) => Promise<any>> = {
   "/api/claude-orchestra-v2": (body) => legacyFetchWithSupabaseAuth("/api/claude-orchestra-v2", "POST", { query: body.message, context: body.context }),
@@ -349,6 +368,11 @@ export async function api<T = any>(
     return supabaseRoutes[path](params) as Promise<T>;
   }
 
+  // Check if this is a Graph API route
+  if (graphGetRoutes[path]) {
+    return graphGetRoutes[path](params) as Promise<T>;
+  }
+
   // Check if this is a Tauri route
   if (tauriRoutes[path] && invoke) {
     return tauriRoutes[path]() as Promise<T>;
@@ -362,6 +386,10 @@ export const apiPost = <T = any>(p: string, body: any): Promise<T> => {
   // Check Supabase POST routes first
   if (postRoutes[p]) {
     return postRoutes[p](body) as Promise<T>;
+  }
+  // Check Graph API POST routes
+  if (graphPostRoutes[p]) {
+    return graphPostRoutes[p](body) as Promise<T>;
   }
   // Check Tauri routes
   if (tauriRoutes[p] && invoke) {

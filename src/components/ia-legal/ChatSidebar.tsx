@@ -18,9 +18,14 @@ interface ChatSidebarProps {
   onMessagesChange: (msgs: ChatMessage[]) => void;
   documentContext: { id: string; title: string } | null;
   onArticleClick: (articleRef: string) => void;
+  useGraphContext?: boolean;
+  onGraphContextChange?: (enabled: boolean) => void;
 }
 
-export function ChatSidebar({ messages, onMessagesChange, documentContext, onArticleClick }: ChatSidebarProps) {
+export function ChatSidebar({
+  messages, onMessagesChange, documentContext, onArticleClick,
+  useGraphContext = false, onGraphContextChange,
+}: ChatSidebarProps) {
   const { isDemo } = useAuth();
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -44,24 +49,46 @@ export function ChatSidebar({ messages, onMessagesChange, documentContext, onArt
 
     setStreaming(true);
     try {
-      const res = await apiPost("/api/claude-orchestra-v2", {
-        query: input,
-        context: {
-          document_id: documentContext?.id || null,
-          document_title: documentContext?.title || null,
-          verify,
-        },
-      });
+      let aiMsg: ChatMessage;
 
-      const data = res?.data ?? res;
-      const aiMsg: ChatMessage = {
-        id: `ai_${Date.now()}`,
-        role: "assistant",
-        content: data?.answer || data?.content || data?.text || (typeof data === "string" ? data : JSON.stringify(data)),
-        timestamp: new Date().toISOString(),
-        tools: data?._meta?.tools_used || data?.tools || [],
-        sources: data?.sources || [],
-      };
+      if (useGraphContext) {
+        // Graph RAG path
+        const res = await apiPost("/api/graph/rag", { query: input });
+        const data = (res as any)?.data ?? res;
+        aiMsg = {
+          id: `ai_${Date.now()}`,
+          role: "assistant",
+          content: data?.answer || (typeof data === "string" ? data : JSON.stringify(data)),
+          timestamp: new Date().toISOString(),
+          tools: ["graph-rag", "neo4j", "gemini"],
+          sources: (data?.citations || []).map((c: any) => ({
+            title: c.doc_number || c.title,
+            url: "",
+            domain: "corpus",
+            verified: true,
+          })),
+        };
+      } else {
+        // Original claude-orchestra-v2 path
+        const res = await apiPost("/api/claude-orchestra-v2", {
+          query: input,
+          context: {
+            document_id: documentContext?.id || null,
+            document_title: documentContext?.title || null,
+            verify,
+          },
+        });
+        const data = (res as any)?.data ?? res;
+        aiMsg = {
+          id: `ai_${Date.now()}`,
+          role: "assistant",
+          content: data?.answer || data?.content || data?.text || (typeof data === "string" ? data : JSON.stringify(data)),
+          timestamp: new Date().toISOString(),
+          tools: data?._meta?.tools_used || data?.tools || [],
+          sources: data?.sources || [],
+        };
+      }
+
       onMessagesChange([...updated, aiMsg]);
     } catch (e: any) {
       const errMsg: ChatMessage = {
@@ -74,7 +101,7 @@ export function ChatSidebar({ messages, onMessagesChange, documentContext, onArt
     } finally {
       setStreaming(false);
     }
-  }, [input, streaming, isDemo, messages, onMessagesChange, documentContext, verify]);
+  }, [input, streaming, isDemo, messages, onMessagesChange, documentContext, verify, useGraphContext]);
 
   if (collapsed) {
     return (
@@ -170,6 +197,17 @@ export function ChatSidebar({ messages, onMessagesChange, documentContext, onArt
           />
           <span className="text-[10px] text-muted-foreground">Validar bibliografía (usará más tokens)</span>
         </label>
+        {onGraphContextChange && (
+          <label className="flex items-center gap-1.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={useGraphContext}
+              onChange={(e) => onGraphContextChange(e.target.checked)}
+              className="rounded border-muted-foreground/50 text-teal focus:ring-teal/50 h-3 w-3"
+            />
+            <span className="text-[10px] text-muted-foreground">Usar contexto del grafo</span>
+          </label>
+        )}
         <p className="text-[9px] text-muted-foreground/60 text-center">IA puede cometer errores · Verifica siempre</p>
       </div>
     </div>

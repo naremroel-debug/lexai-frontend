@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { mockCorpusResults } from "@/lib/mockData";
 import { useAuth } from "@/contexts/AuthContext";
 import { api, apiPost } from "@/lib/api";
@@ -7,6 +7,9 @@ import { SearchBar } from "@/components/ia-legal/SearchBar";
 import { ResultsList, type CorpusResult, type SearchSource, type CorpusMode } from "@/components/ia-legal/ResultsList";
 import { DocumentViewer } from "@/components/ia-legal/DocumentViewer";
 import { ChatSidebar, type ChatMessage } from "@/components/ia-legal/ChatSidebar";
+import { GraphExplorer } from "@/components/ia-legal/GraphExplorer";
+import { NodeDetailPanel } from "@/components/ia-legal/NodeDetailPanel";
+import type { GraphNode } from "@/lib/graph-types";
 
 export default function IALegal() {
   const { isDemo } = useAuth();
@@ -28,6 +31,15 @@ export default function IALegal() {
 
   // Mobile state
   const [mobileView, setMobileView] = useState<"results" | "doc" | "chat">("results");
+
+  // Graph state
+  const [selectedGraphNode, setSelectedGraphNode] = useState<GraphNode | null>(null);
+  const [useGraphCtx, setUseGraphCtx] = useState(false);
+
+  // Auto-enable graph context when source is "grafo"
+  useEffect(() => {
+    setUseGraphCtx(source === "grafo");
+  }, [source]);
 
   // Search handler
   const handleSearch = useCallback(async () => {
@@ -133,6 +145,15 @@ export default function IALegal() {
     setMobileView("doc"); // Show doc on mobile when chat link clicked
   }, []);
 
+  // Graph: view a norm in corpus search results
+  const handleViewInCorpus = useCallback((docNumber: string) => {
+    setQuery(docNumber);
+    setSource("corpus");
+  }, []);
+
+  // Graph: expand node neighbors (handled by GraphExplorer internally via double-click)
+  const handleExpandNeighbors = useCallback((_node: GraphNode) => {}, []);
+
   // Document context for chat
   const docContext = selectedDoc ? { id: selectedDoc.id, title: selectedDoc.title } : null;
 
@@ -159,16 +180,36 @@ export default function IALegal() {
           resultCount={results.length}
           searchTime={searchTime}
         />
-        <DocumentViewer
-          document={selectedDoc}
-          searchQuery={query}
-          highlightedSection={highlightedSection}
-        />
+        {source === "grafo" ? (
+          <>
+            <GraphExplorer
+              searchQuery={query}
+              onNodeSelect={setSelectedGraphNode}
+              selectedNodeId={selectedGraphNode?.id || null}
+            />
+            {selectedGraphNode && (
+              <NodeDetailPanel
+                node={selectedGraphNode}
+                onClose={() => setSelectedGraphNode(null)}
+                onViewInCorpus={handleViewInCorpus}
+                onExpandNeighbors={handleExpandNeighbors}
+              />
+            )}
+          </>
+        ) : (
+          <DocumentViewer
+            document={selectedDoc}
+            searchQuery={query}
+            highlightedSection={highlightedSection}
+          />
+        )}
         <ChatSidebar
           messages={messages}
           onMessagesChange={setMessages}
           documentContext={docContext}
           onArticleClick={handleArticleClick}
+          useGraphContext={useGraphCtx}
+          onGraphContextChange={setUseGraphCtx}
         />
       </div>
 
@@ -217,6 +258,8 @@ export default function IALegal() {
                 onMessagesChange={setMessages}
                 documentContext={docContext}
                 onArticleClick={handleArticleClick}
+                useGraphContext={useGraphCtx}
+                onGraphContextChange={setUseGraphCtx}
               />
             </div>
           )}
