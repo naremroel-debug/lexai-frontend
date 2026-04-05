@@ -165,18 +165,38 @@ const supabaseRoutes: Record<string, RouteHandler> = {
     return data || [];
   },
 
-  // Emails (list)
+  // Emails (list) — maps DB columns (subject_enc, from_enc, etc.) to UI fields (subject, from, etc.)
   "/api/emails": async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("No autorizado");
     const { data, error } = await supabase
       .from("emails")
-      .select("*")
+      .select("id, user_id, subject_enc, from_enc, to_address, body_enc, body_html_enc, snippet, gmail_date, internal_date, is_unread, label_ids, ai_urgency, ai_category, ai_summary, ai_type, ai_plazo, ai_estimated_hours, synced_at")
       .eq("user_id", user.id)
-      .order("received_at", { ascending: false })
+      .order("internal_date", { ascending: false })
       .limit(50);
     if (error) throw new Error(error.message);
-    return data || [];
+    // Map encrypted/raw column names to what pages expect
+    return (data || []).map((e: any) => ({
+      id: e.id,
+      subject: e.subject_enc || "(Sin asunto)",
+      from: e.from_enc || "",
+      to: e.to_address || "",
+      body: e.body_enc || e.snippet || "",
+      bodyHtml: e.body_html_enc || null,
+      date: e.internal_date || e.gmail_date || e.synced_at,
+      urgency: e.ai_urgency || "media",
+      read: !e.is_unread,
+      labels: e.label_ids || [],
+      ai_analysis: {
+        urgency: e.ai_urgency || "media",
+        category: e.ai_category || "",
+        summary: e.ai_summary || "",
+        type: e.ai_type || "",
+        deadline: e.ai_plazo || null,
+        estimated_hours: e.ai_estimated_hours || null,
+      },
+    }));
   },
 };
 
