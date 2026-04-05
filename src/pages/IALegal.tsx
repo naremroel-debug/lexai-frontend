@@ -1,4 +1,5 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
+import { Network } from "lucide-react";
 import { mockCorpusResults } from "@/lib/mockData";
 import { useAuth } from "@/contexts/AuthContext";
 import { api, apiPost } from "@/lib/api";
@@ -35,11 +36,7 @@ export default function IALegal() {
   // Graph state
   const [selectedGraphNode, setSelectedGraphNode] = useState<GraphNode | null>(null);
   const [useGraphCtx, setUseGraphCtx] = useState(false);
-
-  // Auto-enable graph context when source is "grafo"
-  useEffect(() => {
-    setUseGraphCtx(source === "grafo");
-  }, [source]);
+  const [showGraph, setShowGraph] = useState(false);
 
   // Search handler
   const handleSearch = useCallback(async () => {
@@ -180,29 +177,47 @@ export default function IALegal() {
           resultCount={results.length}
           searchTime={searchTime}
         />
-        {source === "grafo" ? (
-          <>
-            <GraphExplorer
-              searchQuery={query}
-              onNodeSelect={setSelectedGraphNode}
-              selectedNodeId={selectedGraphNode?.id || null}
-            />
-            {selectedGraphNode && (
-              <NodeDetailPanel
-                node={selectedGraphNode}
-                onClose={() => setSelectedGraphNode(null)}
-                onViewInCorpus={handleViewInCorpus}
-                onExpandNeighbors={handleExpandNeighbors}
+        <div className="flex-1 flex flex-col overflow-hidden relative">
+          {/* Graph toggle button */}
+          {source === "corpus" && (
+            <button
+              onClick={() => { setShowGraph(!showGraph); if (!showGraph) setSelectedGraphNode(null); }}
+              className={`absolute top-2 right-2 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium border transition-colors ${
+                showGraph
+                  ? "bg-teal text-accent-foreground border-teal"
+                  : "bg-card text-muted-foreground border-border hover:border-teal hover:text-teal"
+              }`}
+              title={showGraph ? "Ver documento" : "Ver grafo de relaciones"}
+            >
+              <Network className="h-3 w-3" />
+              {showGraph ? "Documento" : "Grafo"}
+            </button>
+          )}
+
+          {showGraph && source === "corpus" ? (
+            <div className="flex flex-1 overflow-hidden">
+              <GraphExplorer
+                searchQuery={query}
+                onNodeSelect={setSelectedGraphNode}
+                selectedNodeId={selectedGraphNode?.id || null}
               />
-            )}
-          </>
-        ) : (
-          <DocumentViewer
-            document={selectedDoc}
-            searchQuery={query}
-            highlightedSection={highlightedSection}
-          />
-        )}
+              {selectedGraphNode && (
+                <NodeDetailPanel
+                  node={selectedGraphNode}
+                  onClose={() => setSelectedGraphNode(null)}
+                  onViewInCorpus={handleViewInCorpus}
+                  onExpandNeighbors={handleExpandNeighbors}
+                />
+              )}
+            </div>
+          ) : (
+            <DocumentViewer
+              document={selectedDoc}
+              searchQuery={query}
+              highlightedSection={highlightedSection}
+            />
+          )}
+        </div>
         <ChatSidebar
           messages={messages}
           onMessagesChange={setMessages}

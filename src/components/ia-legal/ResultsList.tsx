@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { BookOpen, Globe, Network, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { BookOpen, Globe, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 
-export type SearchSource = "corpus" | "spij" | "grafo";
+export type SearchSource = "corpus" | "spij";
 export type CorpusMode = "keyword" | "hybrid" | "semantic";
 
 export interface CorpusResult {
@@ -70,17 +70,6 @@ export function ResultsList({
         >
           <Globe className="h-3 w-3 inline mr-1" />
           SPIJ
-        </button>
-        <button
-          onClick={() => onSourceChange("grafo")}
-          className={`flex-1 py-2 text-xs font-semibold text-center transition-colors ${
-            source === "grafo"
-              ? "text-teal border-b-2 border-teal bg-teal/5"
-              : "text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          <Network className="h-3 w-3 inline mr-1" />
-          Grafo
         </button>
         <button
           onClick={() => setCollapsed(true)}
